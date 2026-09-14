@@ -4,7 +4,11 @@ import mongoose from 'mongoose';
  * Robust MongoDB Connection with Event Listeners
  */
 export const connectDB = async () => {
-  const uri = process.env.MONGODB_URI || 'mongodb://localhost:27017/aichatbot';
+  const rawUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/aichatbot';
+  const uri = rawUri.trim().replace(/^["']|["']$/g, '').trim();
+
+  const maskedUri = uri.replace(/\/\/(.*?):(.*?)@/, '//$1:***@');
+  console.log(`[Database] Attempting MongoDB connection: ${maskedUri}`);
 
   try {
     const conn = await mongoose.connect(uri, {
