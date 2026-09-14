@@ -1,4 +1,4 @@
-const CACHE_NAME = 'aichatbot-v1';
+const CACHE_NAME = 'vaksetu-v2';
 const PRECACHE_ASSETS = [
   '/',
   '/index.html',
