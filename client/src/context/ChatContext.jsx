@@ -765,7 +765,6 @@ export const ChatProvider = ({ children }) => {
         status: 'sent',
       };
 
-      setAiMessages((prev) => [...prev, userMsg]);
       const aiMsgId = `msg-ai-${Date.now()}`;
       const placeholderAiMsg = {
         _id: aiMsgId,
