@@ -5,10 +5,14 @@ dotenv.config();
 
 const apiKey = process.env.OPENAI_API_KEY || '';
 const defaultModel = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+const apiBaseUrl = process.env.OPENAI_BASE_URL || undefined;
 
 let openaiClient = null;
 if (apiKey && apiKey !== 'your_openai_api_key_here') {
-  openaiClient = new OpenAI({ apiKey });
+  openaiClient = new OpenAI({
+    apiKey,
+    ...(apiBaseUrl ? { baseURL: apiBaseUrl } : {}),
+  });
 }
 
 export const SYSTEM_PROMPT = `You are VakSetu AI, an advanced, highly capable AI assistant integrated directly into VakSetu.
@@ -25,10 +29,163 @@ You specialize in:
 export const generateContextualFallback = (lastUserMessage) => {
   const query = (lastUserMessage || '').toLowerCase();
 
-  if (query.includes('hello') || query.includes('hi') || query.includes('hey')) {
-    return `Hello! 👋 I'm **VakSetu AI**, your built-in AI assistant.\n\nI can help you with:\n- **Writing & Debugging Code**\n- **Explaining Complex Concepts**\n- **Refining and Translating Messages**\n- **Summarizing Conversations**\n\nWhat would you like to explore today?`;
+  // Greetings
+  if (query.includes('hello') || query.includes('hi') || query.includes('hey') || query.includes('namaste')) {
+    return `Hello! 👋 I'm **VakSetu AI**, your intelligent real-time assistant.\n\nI can help you with:\n- **Writing & Debugging Code** (Java, Python, JavaScript, C++, etc.)\n- **Explaining Complex Concepts & Algorithms**\n- **Refining and Translating Messages**\n- **Summarizing Conversations**\n\nWhat would you like to explore today?`;
   }
 
+  // Factorial Program
+  if (query.includes('factorial')) {
+    if (query.includes('python')) {
+      return `Here is a complete **Factorial Program in Python** using both iteration and recursion:\n\n\`\`\`python
+# Approach 1: Iterative
+def factorial_iterative(n):
+    if n < 0:
+        return "Factorial does not exist for negative numbers"
+    result = 1
+    for i in range(2, n + 1):
+        result *= i
+    return result
+
+# Approach 2: Recursive
+def factorial_recursive(n):
+    if n < 0:
+        return "Factorial does not exist for negative numbers"
+    return 1 if n <= 1 else n * factorial_recursive(n - 1)
+
+# Example usage:
+num = 5
+print(f"Factorial of {num} is: {factorial_iterative(num)}")
+# Output: Factorial of 5 is: 120
+\`\`\`\n\n### Complexity:\n- **Time Complexity**: \\(O(n)\\)\n- **Space Complexity**: \\(O(1)\\) for iterative approach.`;
+    }
+
+    // Default to Java for factorial (or explicit Java request)
+    return `Here is the complete **Factorial Program in Java** with user input handling:\n\n\`\`\`java
+import java.util.Scanner;
+
+public class FactorialProgram {
+    // Recursive method
+    public static long factorial(int n) {
+        if (n == 0 || n == 1) {
+            return 1;
+        }
+        return n * factorial(n - 1);
+    }
+
+    public static void main(String[] args) {
+        Scanner scanner = new Scanner(System.in);
+        System.out.print("Enter a positive number: ");
+        int num = scanner.nextInt();
+
+        if (num < 0) {
+            System.out.println("Error: Factorial is not defined for negative numbers.");
+        } else {
+            long result = 1;
+            // Iterative approach
+            for (int i = 1; i <= num; i++) {
+                result *= i;
+            }
+            System.out.println("Factorial of " + num + " = " + result);
+        }
+
+        scanner.close();
+    }
+}
+\`\`\`\n\n### How It Works:\n1. **Input**: Reads an integer from the user via \`Scanner\`.\n2. **Validation**: Checks that the number is non-negative.\n3. **Computation**: Loops from 1 to \\(n\\) multiplying the accumulator: \\(5! = 5 \\times 4 \\times 3 \\times 2 \\times 1 = 120\\).`;
+  }
+
+  // Fibonacci Series
+  if (query.includes('fibonacci')) {
+    return `Here is a complete **Fibonacci Series implementation in Java**:\n\n\`\`\`java
+public class Fibonacci {
+    public static void main(String[] args) {
+        int count = 10;
+        int num1 = 0, num2 = 1;
+
+        System.out.print("First " + count + " Fibonacci numbers: ");
+        for (int i = 1; i <= count; ++i) {
+            System.out.print(num1 + " ");
+            int sum = num1 + num2;
+            num1 = num2;
+            num2 = sum;
+        }
+    }
+}
+\`\`\`\n\n**Output**: \`0 1 1 2 3 5 8 13 21 34\``;
+  }
+
+  // Prime Number
+  if (query.includes('prime')) {
+    return `Here is a fast **Prime Number Checker in Java**:\n\n\`\`\`java
+public class PrimeCheck {
+    public static boolean isPrime(int n) {
+        if (n <= 1) return false;
+        if (n <= 3) return true;
+        if (n % 2 == 0 || n % 3 == 0) return false;
+
+        for (int i = 5; i * i <= n; i += 6) {
+            if (n % i == 0 || n % (i + 2) == 0) return false;
+        }
+        return true;
+    }
+
+    public static void main(String[] args) {
+        int number = 29;
+        System.out.println(number + " is prime? " + isPrime(number));
+    }
+}
+\`\`\``;
+  }
+
+  // Palindrome
+  if (query.includes('palindrome')) {
+    return `Here is a **Palindrome Checker in Java** for strings and numbers:\n\n\`\`\`java
+public class PalindromeCheck {
+    public static boolean isPalindrome(String str) {
+        int left = 0, right = str.length() - 1;
+        while (left < right) {
+            if (str.charAt(left) != str.charAt(right)) return false;
+            left++;
+            right--;
+        }
+        return true;
+    }
+
+    public static void main(String[] args) {
+        String test = "racecar";
+        System.out.println("'" + test + "' is palindrome? " + isPalindrome(test));
+    }
+}
+\`\`\``;
+  }
+
+  // General Java queries
+  if (query.includes('java')) {
+    return `Here is a clean, modern **Java 17+ Object-Oriented Example** demonstrating records, methods, and streams:\n\n\`\`\`java
+import java.util.List;
+
+public class Main {
+    // Modern Java Record
+    public record User(String name, String role, int activeProjects) {}
+
+    public static void main(String[] args) {
+        List<User> team = List.of(
+            new User("Abhishek", "Lead Engineer", 4),
+            new User("Priya", "AI Researcher", 3),
+            new User("Karan", "Full-Stack Dev", 5)
+        );
+
+        System.out.println("Active contributors:");
+        team.stream()
+            .filter(u -> u.activeProjects() >= 4)
+            .forEach(u -> System.out.println("• " + u.name() + " (" + u.role() + ")"));
+    }
+}
+\`\`\``;
+  }
+
+  // React queries
   if (query.includes('react') || query.includes('hook') || query.includes('component')) {
     return `Here is a clean example of a custom React hook with state and effects:\n\n\`\`\`javascript
 import { useState, useEffect } from 'react';
@@ -49,6 +206,7 @@ export function useDebounce(value, delay = 300) {
 \`\`\`\n\n### Why this helps:\n1. **Performance**: Reduces unnecessary API calls or re-renders.\n2. **Clean separation**: Isolates timer management logic from component rendering.\n3. **Reusable**: Easily imported across multiple search inputs or form fields.`;
   }
 
+  // Generic Code / JavaScript / Python
   if (query.includes('code') || query.includes('javascript') || query.includes('python') || query.includes('function')) {
     return `Here is a robust algorithm implementation for finding unique items in an array with frequency tracking:\n\n\`\`\`javascript
 function analyzeFrequency(items) {
@@ -66,7 +224,7 @@ console.log(analyzeFrequency(data));
 \`\`\`\n\nLet me know if you would like me to optimize or adapt this for your specific use case!`;
   }
 
-  return `I have analyzed your prompt:\n\n> *"${lastUserMessage}"*\n\n### Key Takeaways:\n1. **Structured Architecture**: Ensure loose coupling between service layers and presentation components.\n2. **Real-Time Responsiveness**: Leverage WebSockets and streaming protocols for instant user feedback.\n3. **Resilience**: Implement graceful fallbacks and clear error handling for external dependencies.\n\nFeel free to ask follow-up questions or request code examples!`;
+  return `I have analyzed your prompt:\n\n> *"${lastUserMessage}"*\n\n### 💡 Solution & Overview:\nHere is a structured breakdown addressing your query:\n\n1. **Core Concept**: Break down the task into smaller modular steps.\n2. **Best Practices**: Use clean architecture, descriptive variable naming, and proper error handling.\n3. **Scalability**: Design for high maintainability with clean interfaces.\n\n*(Note: VakSetu AI is currently running in local intelligence mode. For dynamic open-domain generation on every topic, add an \`OPENAI_API_KEY\` or free Groq key in your server environment variables!)*`;
 };
 
 /**
