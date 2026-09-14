@@ -1,7 +1,11 @@
 import axios from 'axios';
 
+const rawBaseUrl = import.meta.env.VITE_API_URL || 'https://vaksetu.onrender.com/api';
+// Automatically sanitize any -api typo in Render domain
+const cleanBaseUrl = rawBaseUrl.replace('vaksetu-api.onrender.com', 'vaksetu.onrender.com');
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'https://vaksetu.onrender.com/api',
+  baseURL: cleanBaseUrl,
   withCredentials: true,
   timeout: 60000,
   headers: {

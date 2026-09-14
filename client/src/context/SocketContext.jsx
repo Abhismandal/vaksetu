@@ -19,7 +19,8 @@ export const SocketProvider = ({ children }) => {
       return;
     }
 
-    const socketUrl = import.meta.env.VITE_SOCKET_URL || 'https://vaksetu.onrender.com';
+    const rawSocketUrl = import.meta.env.VITE_SOCKET_URL || 'https://vaksetu.onrender.com';
+    const socketUrl = rawSocketUrl.replace('vaksetu-api.onrender.com', 'vaksetu.onrender.com');
 
     const socketInstance = io(socketUrl, {
       auth: { token },

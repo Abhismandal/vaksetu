@@ -221,8 +221,8 @@ export const chatService = {
     signal,
   }) {
     try {
-      const token = localStorage.getItem('token');
-      const baseURL = import.meta.env.VITE_API_URL || 'https://vaksetu.onrender.com/api';
+      const rawBaseURL = import.meta.env.VITE_API_URL || 'https://vaksetu.onrender.com/api';
+      const baseURL = rawBaseURL.replace('vaksetu-api.onrender.com', 'vaksetu.onrender.com');
 
       const response = await fetch(`${baseURL}/ai/chat`, {
         method: 'POST',
