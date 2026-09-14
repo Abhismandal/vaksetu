@@ -72,16 +72,19 @@ const RegisterPage = () => {
     }
 
     setIsSubmitting(true);
-    const result = await register({
-      name: name.trim(),
-      username: username.trim().toLowerCase(),
-      email: email.trim().toLowerCase(),
-      password,
-    });
-    setIsSubmitting(false);
+    try {
+      const result = await register({
+        name: name.trim(),
+        username: username.trim().toLowerCase(),
+        email: email.trim().toLowerCase(),
+        password,
+      });
 
-    if (result.success) {
-      navigate('/', { replace: true });
+      if (result.success) {
+        navigate('/', { replace: true });
+      }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 

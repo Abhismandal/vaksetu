@@ -37,11 +37,14 @@ const LoginPage = () => {
     }
 
     setIsSubmitting(true);
-    const result = await login(identifier.trim(), password);
-    setIsSubmitting(false);
+    try {
+      const result = await login(identifier.trim(), password);
 
-    if (result.success) {
-      navigate(from, { replace: true });
+      if (result.success) {
+        navigate(from, { replace: true });
+      }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
