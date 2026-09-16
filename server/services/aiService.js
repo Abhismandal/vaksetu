@@ -298,6 +298,32 @@ console.log(analyzeFrequency(data));
   return `I have analyzed your prompt:\n\n> *"${lastUserMessage}"*\n\n### 💡 Solution & Overview:\nHere is a structured breakdown addressing your query:\n\n1. **Core Concept**: Break down the task into smaller modular steps.\n2. **Best Practices**: Use clean architecture, descriptive variable naming, and proper error handling.\n3. **Scalability**: Design for high maintainability with clean interfaces.\n\n*(Note: VakSetu AI is currently running in local intelligence mode. For dynamic open-domain generation on every topic, add an \`OPENAI_API_KEY\` or free Groq key in your server environment variables!)*`;
 };
 
+let cachedWorkingModel = null;
+
+/**
+ * Dynamically queries the provider for available chat/text generation models,
+ * filtering out audio (whisper), safety guards, and embeddings.
+ */
+export const getAvailableChatModels = async (client) => {
+  try {
+    const list = await client.models.list();
+    const chatModels = (list.data || [])
+      .map((m) => m.id)
+      .filter(
+        (id) =>
+          !id.includes('whisper') &&
+          !id.includes('guard') &&
+          !id.includes('safeguard') &&
+          !id.includes('orpheus') &&
+          !id.includes('tts') &&
+          !id.includes('embed')
+      );
+    return chatModels;
+  } catch (err) {
+    return [];
+  }
+};
+
 /**
  * Standard non-streaming chat completion
  */
@@ -320,9 +346,24 @@ export const chatCompletion = async ({
 
   if (config.isConfigured) {
     const client = getOpenAIClient();
-    const candidateModels = config.provider === 'groq'
-      ? [effectiveModel, ...GROQ_CANDIDATE_MODELS.filter((m) => m !== effectiveModel)]
-      : [effectiveModel];
+
+    let candidateModels = [cachedWorkingModel || effectiveModel];
+    if (config.provider === 'groq') {
+      try {
+        const liveChatModels = await getAvailableChatModels(client);
+        if (liveChatModels.length > 0) {
+          const preferred =
+            cachedWorkingModel ||
+            (liveChatModels.includes(effectiveModel) ? effectiveModel : liveChatModels[0]);
+          candidateModels = [
+            preferred,
+            ...liveChatModels.filter((m) => m !== preferred),
+          ];
+        }
+      } catch (e) {
+        candidateModels = [effectiveModel, ...GROQ_CANDIDATE_MODELS.filter((m) => m !== effectiveModel)];
+      }
+    }
 
     let lastErr = null;
 
@@ -336,6 +377,7 @@ export const chatCompletion = async ({
         });
 
         const content = response.choices[0]?.message?.content || '';
+        cachedWorkingModel = targetModel;
         return {
           success: true,
           content,
@@ -346,11 +388,13 @@ export const chatCompletion = async ({
         lastErr = err;
         const isModelError =
           err.status === 404 ||
+          err.status === 400 ||
           err.code === 'model_not_found' ||
-          (err.message && err.message.toLowerCase().includes('model'));
+          err.code === 'model_decommissioned' ||
+          (err.message && (err.message.toLowerCase().includes('model') || err.message.toLowerCase().includes('decommissioned')));
 
         if (isModelError && candidateModels.indexOf(targetModel) < candidateModels.length - 1) {
-          console.warn(`[AI Provider (${config.provider})] Model ${targetModel} not accessible, attempting fallback...`);
+          console.warn(`[AI Provider (${config.provider})] Model ${targetModel} not accessible, attempting fallback to next model...`);
           continue;
         }
         break;
@@ -403,9 +447,24 @@ export const streamChatCompletion = async ({
 
   if (config.isConfigured) {
     const client = getOpenAIClient();
-    const candidateModels = config.provider === 'groq'
-      ? [effectiveModel, ...GROQ_CANDIDATE_MODELS.filter((m) => m !== effectiveModel)]
-      : [effectiveModel];
+
+    let candidateModels = [cachedWorkingModel || effectiveModel];
+    if (config.provider === 'groq') {
+      try {
+        const liveChatModels = await getAvailableChatModels(client);
+        if (liveChatModels.length > 0) {
+          const preferred =
+            cachedWorkingModel ||
+            (liveChatModels.includes(effectiveModel) ? effectiveModel : liveChatModels[0]);
+          candidateModels = [
+            preferred,
+            ...liveChatModels.filter((m) => m !== preferred),
+          ];
+        }
+      } catch (e) {
+        candidateModels = [effectiveModel, ...GROQ_CANDIDATE_MODELS.filter((m) => m !== effectiveModel)];
+      }
+    }
 
     let lastErr = null;
 
@@ -427,17 +486,20 @@ export const streamChatCompletion = async ({
             onChunk(delta);
           }
         }
+        cachedWorkingModel = targetModel;
         onDone(fullText);
         return fullText;
       } catch (err) {
         lastErr = err;
         const isModelError =
           err.status === 404 ||
+          err.status === 400 ||
           err.code === 'model_not_found' ||
-          (err.message && err.message.toLowerCase().includes('model'));
+          err.code === 'model_decommissioned' ||
+          (err.message && (err.message.toLowerCase().includes('model') || err.message.toLowerCase().includes('decommissioned')));
 
         if (isModelError && candidateModels.indexOf(targetModel) < candidateModels.length - 1) {
-          console.warn(`[AI Provider (${config.provider}) Stream] Model ${targetModel} not accessible, attempting fallback...`);
+          console.warn(`[AI Provider (${config.provider}) Stream] Model ${targetModel} not accessible, attempting fallback to next model...`);
           continue;
         }
         break;
@@ -681,5 +743,7 @@ export default {
   generateSmartReplies,
   getAiConfig,
   getOpenAIClient,
+  getAvailableChatModels,
+  GROQ_CANDIDATE_MODELS,
   SYSTEM_PROMPT,
 };

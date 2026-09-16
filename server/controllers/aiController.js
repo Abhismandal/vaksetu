@@ -9,6 +9,7 @@ import {
   generateSmartReplies,
   getAiConfig,
   getOpenAIClient,
+  getAvailableChatModels,
   GROQ_CANDIDATE_MODELS,
 } from '../services/aiService.js';
 
@@ -367,9 +368,12 @@ export const getAiStatus = async (req, res) => {
     if (shouldTest && config.isConfigured) {
       const startTime = Date.now();
       const client = getOpenAIClient();
-      const candidateModels = config.provider === 'groq'
-        ? [config.model, ...GROQ_CANDIDATE_MODELS.filter((m) => m !== config.model)]
-        : [config.model];
+      let candidateModels = [config.model];
+
+      if (config.provider === 'groq') {
+        const liveChatModels = await getAvailableChatModels(client);
+        candidateModels = liveChatModels.length > 0 ? liveChatModels : GROQ_CANDIDATE_MODELS;
+      }
 
       let testSuccess = false;
       let lastTestErr = null;
