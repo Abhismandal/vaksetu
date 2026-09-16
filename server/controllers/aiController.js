@@ -9,6 +9,7 @@ import {
   generateSmartReplies,
   getAiConfig,
   getOpenAIClient,
+  GROQ_CANDIDATE_MODELS,
 } from '../services/aiService.js';
 
 /**
@@ -353,29 +354,54 @@ export const getAiStatus = async (req, res) => {
       timestamp: new Date().toISOString(),
     };
 
-    if (shouldTest && config.isConfigured) {
-      const startTime = Date.now();
+    if (config.isConfigured) {
       try {
         const client = getOpenAIClient();
-        const testRes = await client.chat.completions.create({
-          model: config.model,
-          messages: [{ role: 'user', content: 'Say "pong"' }],
-          max_tokens: 10,
-          temperature: 0.1,
-        });
-        const latencyMs = Date.now() - startTime;
-        statusResponse.liveTest = {
-          success: true,
-          latencyMs,
-          modelUsed: testRes.model || config.model,
-          response: testRes.choices[0]?.message?.content?.trim() || '',
-        };
-      } catch (testErr) {
+        const modelList = await client.models.list();
+        statusResponse.availableModels = (modelList.data || []).map((m) => m.id);
+      } catch (e) {
+        statusResponse.availableModelsError = e.message;
+      }
+    }
+
+    if (shouldTest && config.isConfigured) {
+      const startTime = Date.now();
+      const client = getOpenAIClient();
+      const candidateModels = config.provider === 'groq'
+        ? [config.model, ...GROQ_CANDIDATE_MODELS.filter((m) => m !== config.model)]
+        : [config.model];
+
+      let testSuccess = false;
+      let lastTestErr = null;
+
+      for (const m of candidateModels) {
+        try {
+          const testRes = await client.chat.completions.create({
+            model: m,
+            messages: [{ role: 'user', content: 'Say "pong"' }],
+            max_tokens: 10,
+            temperature: 0.1,
+          });
+          const latencyMs = Date.now() - startTime;
+          statusResponse.liveTest = {
+            success: true,
+            latencyMs,
+            modelUsed: testRes.model || m,
+            response: testRes.choices[0]?.message?.content?.trim() || '',
+          };
+          testSuccess = true;
+          break;
+        } catch (testErr) {
+          lastTestErr = testErr;
+        }
+      }
+
+      if (!testSuccess) {
         statusResponse.liveTest = {
           success: false,
-          error: testErr.message,
-          status: testErr.status,
-          code: testErr.code,
+          error: lastTestErr?.message,
+          status: lastTestErr?.status,
+          code: lastTestErr?.code,
         };
       }
     }

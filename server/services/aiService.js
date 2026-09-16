@@ -4,6 +4,17 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 
+export const GROQ_CANDIDATE_MODELS = [
+  'llama-3.1-8b-instant',
+  'llama3-8b-8192',
+  'llama3-70b-8192',
+  'llama-3.3-70b-versatile',
+  'mixtral-8x7b-32768',
+  'gemma2-9b-it',
+  'llama-3.2-1b-preview',
+  'llama-3.2-3b-preview',
+];
+
 /**
  * Resolves AI provider configuration from environment variables.
  * Automatically detects Groq, OpenRouter, or OpenAI, cleans quotes/slashes,
@@ -43,11 +54,11 @@ export const getAiConfig = () => {
   }
 
   // Model selection:
-  // For Groq: llama-3.3-70b-versatile (replaces deprecated llama-3.1-70b/llama3-8b).
-  // If model is unset or set to an OpenAI model like gpt-4o-mini, use llama-3.3-70b-versatile.
+  // For Groq: default to llama-3.1-8b-instant (guaranteed universal free-tier availability).
+  // If model is unset or set to an OpenAI model like gpt-4o-mini, use llama-3.1-8b-instant.
   let effectiveModel = rawModel;
-  if (!effectiveModel || (isGroq && (effectiveModel.includes('gpt') || effectiveModel === 'gpt-4o-mini'))) {
-    effectiveModel = isGroq ? 'llama-3.3-70b-versatile' : 'gpt-4o-mini';
+  if (!effectiveModel || (isGroq && (effectiveModel.includes('gpt') || effectiveModel === 'gpt-4o-mini' || effectiveModel === 'llama-3.3-70b-versatile'))) {
+    effectiveModel = isGroq ? 'llama-3.1-8b-instant' : 'gpt-4o-mini';
   }
 
   const isConfigured = Boolean(rawKey && rawKey !== 'your_openai_api_key_here');
@@ -308,31 +319,51 @@ export const chatCompletion = async ({
   ];
 
   if (config.isConfigured) {
-    try {
-      const client = getOpenAIClient();
-      const response = await client.chat.completions.create({
-        model: effectiveModel,
-        messages: formattedMessages,
-        temperature,
-        max_tokens: maxTokens,
-      });
+    const client = getOpenAIClient();
+    const candidateModels = config.provider === 'groq'
+      ? [effectiveModel, ...GROQ_CANDIDATE_MODELS.filter((m) => m !== effectiveModel)]
+      : [effectiveModel];
 
-      const content = response.choices[0]?.message?.content || '';
-      return {
-        success: true,
-        content,
-        model: response.model || effectiveModel,
-        usage: response.usage,
-      };
-    } catch (err) {
-      console.error(`[AI Provider (${config.provider}) Completion Error]:`, err.message);
-      return {
-        success: false,
-        content: `⚠️ **${config.provider.toUpperCase()} API Error**: ${err.message}\n\n*Please verify your API key, model selection (\`${effectiveModel}\`), and provider settings in Render dashboard.*`,
-        model: effectiveModel,
-        error: err.message,
-      };
+    let lastErr = null;
+
+    for (const targetModel of candidateModels) {
+      try {
+        const response = await client.chat.completions.create({
+          model: targetModel,
+          messages: formattedMessages,
+          temperature,
+          max_tokens: maxTokens,
+        });
+
+        const content = response.choices[0]?.message?.content || '';
+        return {
+          success: true,
+          content,
+          model: response.model || targetModel,
+          usage: response.usage,
+        };
+      } catch (err) {
+        lastErr = err;
+        const isModelError =
+          err.status === 404 ||
+          err.code === 'model_not_found' ||
+          (err.message && err.message.toLowerCase().includes('model'));
+
+        if (isModelError && candidateModels.indexOf(targetModel) < candidateModels.length - 1) {
+          console.warn(`[AI Provider (${config.provider})] Model ${targetModel} not accessible, attempting fallback...`);
+          continue;
+        }
+        break;
+      }
     }
+
+    console.error(`[AI Provider (${config.provider}) Completion Error]:`, lastErr.message);
+    return {
+      success: false,
+      content: `⚠️ **${config.provider.toUpperCase()} API Error**: ${lastErr.message}\n\n*Please verify your API key, model selection (\`${effectiveModel}\`), and provider settings in Render dashboard.*`,
+      model: effectiveModel,
+      error: lastErr.message,
+    };
   }
 
   // Fallback (only when no key is configured)
@@ -371,33 +402,53 @@ export const streamChatCompletion = async ({
   ];
 
   if (config.isConfigured) {
-    try {
-      const client = getOpenAIClient();
-      const stream = await client.chat.completions.create({
-        model: effectiveModel,
-        messages: formattedMessages,
-        temperature,
-        max_tokens: maxTokens,
-        stream: true,
-      });
+    const client = getOpenAIClient();
+    const candidateModels = config.provider === 'groq'
+      ? [effectiveModel, ...GROQ_CANDIDATE_MODELS.filter((m) => m !== effectiveModel)]
+      : [effectiveModel];
 
-      let fullText = '';
-      for await (const chunk of stream) {
-        const delta = chunk.choices[0]?.delta?.content || '';
-        if (delta) {
-          fullText += delta;
-          onChunk(delta);
+    let lastErr = null;
+
+    for (const targetModel of candidateModels) {
+      try {
+        const stream = await client.chat.completions.create({
+          model: targetModel,
+          messages: formattedMessages,
+          temperature,
+          max_tokens: maxTokens,
+          stream: true,
+        });
+
+        let fullText = '';
+        for await (const chunk of stream) {
+          const delta = chunk.choices[0]?.delta?.content || '';
+          if (delta) {
+            fullText += delta;
+            onChunk(delta);
+          }
         }
+        onDone(fullText);
+        return fullText;
+      } catch (err) {
+        lastErr = err;
+        const isModelError =
+          err.status === 404 ||
+          err.code === 'model_not_found' ||
+          (err.message && err.message.toLowerCase().includes('model'));
+
+        if (isModelError && candidateModels.indexOf(targetModel) < candidateModels.length - 1) {
+          console.warn(`[AI Provider (${config.provider}) Stream] Model ${targetModel} not accessible, attempting fallback...`);
+          continue;
+        }
+        break;
       }
-      onDone(fullText);
-      return fullText;
-    } catch (err) {
-      console.error(`[AI Provider (${config.provider}) Stream Error]:`, err.message);
-      const errMsg = `⚠️ **${config.provider.toUpperCase()} API Error**: ${err.message}\n\n*Please verify your API key, model selection (\`${effectiveModel}\`), and provider settings in Render dashboard.*`;
-      onChunk(errMsg);
-      onDone(errMsg);
-      return errMsg;
     }
+
+    console.error(`[AI Provider (${config.provider}) Stream Error]:`, lastErr.message);
+    const errMsg = `⚠️ **${config.provider.toUpperCase()} API Error**: ${lastErr.message}\n\n*Please verify your API key, model selection (\`${effectiveModel}\`), and provider settings in Render dashboard.*`;
+    onChunk(errMsg);
+    onDone(errMsg);
+    return errMsg;
   }
 
   // Fallback streaming simulation (only when no key is configured)
