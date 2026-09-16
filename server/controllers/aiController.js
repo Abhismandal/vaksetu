@@ -7,6 +7,8 @@ import {
   translateMessage,
   summarizeMessages,
   generateSmartReplies,
+  getAiConfig,
+  getOpenAIClient,
 } from '../services/aiService.js';
 
 /**
@@ -321,6 +323,68 @@ export const getSmartRepliesController = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'Failed to generate smart replies',
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * @desc    Get AI Provider Status & Diagnostics (with optional live ping test)
+ * @route   GET /api/ai/status
+ * @access  Public
+ */
+export const getAiStatus = async (req, res) => {
+  try {
+    const config = getAiConfig();
+    const shouldTest = req.query.test === 'true';
+
+    const maskedKey = config.apiKey
+      ? `${config.apiKey.slice(0, 7)}...${config.apiKey.slice(-4)}`
+      : null;
+
+    const statusResponse = {
+      success: true,
+      configured: config.isConfigured,
+      provider: config.provider,
+      model: config.model,
+      baseURL: config.baseURL || 'https://api.openai.com/v1 (default)',
+      keyConfigured: Boolean(config.apiKey),
+      keyPreview: maskedKey,
+      timestamp: new Date().toISOString(),
+    };
+
+    if (shouldTest && config.isConfigured) {
+      const startTime = Date.now();
+      try {
+        const client = getOpenAIClient();
+        const testRes = await client.chat.completions.create({
+          model: config.model,
+          messages: [{ role: 'user', content: 'Say "pong"' }],
+          max_tokens: 10,
+          temperature: 0.1,
+        });
+        const latencyMs = Date.now() - startTime;
+        statusResponse.liveTest = {
+          success: true,
+          latencyMs,
+          modelUsed: testRes.model || config.model,
+          response: testRes.choices[0]?.message?.content?.trim() || '',
+        };
+      } catch (testErr) {
+        statusResponse.liveTest = {
+          success: false,
+          error: testErr.message,
+          status: testErr.status,
+          code: testErr.code,
+        };
+      }
+    }
+
+    return res.status(200).json(statusResponse);
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to retrieve AI status',
       error: error.message,
     });
   }

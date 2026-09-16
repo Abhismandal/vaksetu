@@ -3,17 +3,77 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-const apiKey = process.env.OPENAI_API_KEY || '';
-const defaultModel = process.env.OPENAI_MODEL || 'gpt-4o-mini';
-const apiBaseUrl = process.env.OPENAI_BASE_URL || undefined;
 
-let openaiClient = null;
-if (apiKey && apiKey !== 'your_openai_api_key_here') {
-  openaiClient = new OpenAI({
-    apiKey,
-    ...(apiBaseUrl ? { baseURL: apiBaseUrl } : {}),
+/**
+ * Resolves AI provider configuration from environment variables.
+ * Automatically detects Groq, OpenRouter, or OpenAI, cleans quotes/slashes,
+ * and chooses the appropriate default model.
+ */
+export const getAiConfig = () => {
+  const rawKey = (
+    process.env.OPENAI_API_KEY ||
+    process.env.GROQ_API_KEY ||
+    process.env.AI_API_KEY ||
+    ''
+  ).trim().replace(/^["']|["']$/g, '');
+
+  let rawBaseUrl = (
+    process.env.OPENAI_BASE_URL ||
+    process.env.GROQ_BASE_URL ||
+    ''
+  ).trim().replace(/^["']|["']$/g, '').replace(/\/+$/, '');
+
+  let rawModel = (
+    process.env.OPENAI_MODEL ||
+    process.env.GROQ_MODEL ||
+    ''
+  ).trim().replace(/^["']|["']$/g, '');
+
+  // Groq auto-detection:
+  // 1. Key starts with 'gsk_'
+  // 2. Base URL contains 'groq.com'
+  // 3. GROQ_API_KEY env variable was provided
+  const isGroq =
+    rawKey.startsWith('gsk_') ||
+    (rawBaseUrl && rawBaseUrl.includes('groq.com')) ||
+    Boolean(process.env.GROQ_API_KEY);
+
+  if (isGroq && !rawBaseUrl) {
+    rawBaseUrl = 'https://api.groq.com/openai/v1';
+  }
+
+  // Model selection:
+  // For Groq: llama-3.3-70b-versatile (replaces deprecated llama-3.1-70b/llama3-8b).
+  // If model is unset or set to an OpenAI model like gpt-4o-mini, use llama-3.3-70b-versatile.
+  let effectiveModel = rawModel;
+  if (!effectiveModel || (isGroq && (effectiveModel.includes('gpt') || effectiveModel === 'gpt-4o-mini'))) {
+    effectiveModel = isGroq ? 'llama-3.3-70b-versatile' : 'gpt-4o-mini';
+  }
+
+  const isConfigured = Boolean(rawKey && rawKey !== 'your_openai_api_key_here');
+  const provider = isGroq ? 'groq' : rawBaseUrl ? 'custom' : rawKey ? 'openai' : 'local';
+
+  return {
+    apiKey: rawKey,
+    baseURL: rawBaseUrl || undefined,
+    model: effectiveModel,
+    provider,
+    isConfigured,
+  };
+};
+
+/**
+ * Returns an OpenAI client instance initialized with current config.
+ */
+export const getOpenAIClient = () => {
+  const config = getAiConfig();
+  if (!config.isConfigured) return null;
+
+  return new OpenAI({
+    apiKey: config.apiKey,
+    ...(config.baseURL ? { baseURL: config.baseURL } : {}),
   });
-}
+};
 
 export const SYSTEM_PROMPT = `You are VakSetu AI, an advanced, highly capable AI assistant integrated directly into VakSetu.
 You specialize in:
@@ -232,10 +292,13 @@ console.log(analyzeFrequency(data));
  */
 export const chatCompletion = async ({
   messages = [],
-  model = defaultModel,
+  model,
   temperature = 0.7,
   maxTokens = 1500,
 }) => {
+  const config = getAiConfig();
+  const effectiveModel = model && model !== 'gpt-4o-mini' ? model : config.model;
+
   const formattedMessages = [
     { role: 'system', content: SYSTEM_PROMPT },
     ...messages.map((m) => ({
@@ -244,10 +307,11 @@ export const chatCompletion = async ({
     })),
   ];
 
-  if (openaiClient) {
+  if (config.isConfigured) {
     try {
-      const response = await openaiClient.chat.completions.create({
-        model,
+      const client = getOpenAIClient();
+      const response = await client.chat.completions.create({
+        model: effectiveModel,
         messages: formattedMessages,
         temperature,
         max_tokens: maxTokens,
@@ -257,22 +321,28 @@ export const chatCompletion = async ({
       return {
         success: true,
         content,
-        model: response.model,
+        model: response.model || effectiveModel,
         usage: response.usage,
       };
     } catch (err) {
-      console.warn('[OpenAI API Warning - falling back to local intelligence]:', err.message);
+      console.error(`[AI Provider (${config.provider}) Completion Error]:`, err.message);
+      return {
+        success: false,
+        content: `⚠️ **${config.provider.toUpperCase()} API Error**: ${err.message}\n\n*Please verify your API key, model selection (\`${effectiveModel}\`), and provider settings in Render dashboard.*`,
+        model: effectiveModel,
+        error: err.message,
+      };
     }
   }
 
-  // Fallback
+  // Fallback (only when no key is configured)
   const lastUserMsg = messages[messages.length - 1]?.text || messages[messages.length - 1]?.content || '';
   const fallbackText = generateContextualFallback(lastUserMsg);
 
   return {
     success: true,
     content: fallbackText,
-    model: `${defaultModel} (simulated)`,
+    model: `${effectiveModel} (simulated)`,
     usage: { prompt_tokens: 25, completion_tokens: 80, total_tokens: 105 },
   };
 };
@@ -282,13 +352,16 @@ export const chatCompletion = async ({
  */
 export const streamChatCompletion = async ({
   messages = [],
-  model = defaultModel,
+  model,
   temperature = 0.7,
   maxTokens = 1500,
   onChunk = () => {},
   onDone = () => {},
   onError = () => {},
 }) => {
+  const config = getAiConfig();
+  const effectiveModel = model && model !== 'gpt-4o-mini' ? model : config.model;
+
   const formattedMessages = [
     { role: 'system', content: SYSTEM_PROMPT },
     ...messages.map((m) => ({
@@ -297,10 +370,11 @@ export const streamChatCompletion = async ({
     })),
   ];
 
-  if (openaiClient) {
+  if (config.isConfigured) {
     try {
-      const stream = await openaiClient.chat.completions.create({
-        model,
+      const client = getOpenAIClient();
+      const stream = await client.chat.completions.create({
+        model: effectiveModel,
         messages: formattedMessages,
         temperature,
         max_tokens: maxTokens,
@@ -318,11 +392,15 @@ export const streamChatCompletion = async ({
       onDone(fullText);
       return fullText;
     } catch (err) {
-      console.warn('[OpenAI Stream Warning - streaming simulated response]:', err.message);
+      console.error(`[AI Provider (${config.provider}) Stream Error]:`, err.message);
+      const errMsg = `⚠️ **${config.provider.toUpperCase()} API Error**: ${err.message}\n\n*Please verify your API key, model selection (\`${effectiveModel}\`), and provider settings in Render dashboard.*`;
+      onChunk(errMsg);
+      onDone(errMsg);
+      return errMsg;
     }
   }
 
-  // Fallback streaming simulation
+  // Fallback streaming simulation (only when no key is configured)
   const lastUserMsg = messages[messages.length - 1]?.text || messages[messages.length - 1]?.content || '';
   const fallbackText = generateContextualFallback(lastUserMsg);
 
@@ -361,11 +439,13 @@ export const rewriteMessage = async ({ text, style = 'professional' }) => {
   };
 
   const instruction = styleInstructions[style] || styleInstructions.professional;
+  const config = getAiConfig();
 
-  if (openaiClient) {
+  if (config.isConfigured) {
     try {
-      const response = await openaiClient.chat.completions.create({
-        model: defaultModel,
+      const client = getOpenAIClient();
+      const response = await client.chat.completions.create({
+        model: config.model,
         messages: [
           { role: 'system', content: instruction },
           { role: 'user', content: text },
@@ -377,7 +457,7 @@ export const rewriteMessage = async ({ text, style = 'professional' }) => {
       const rewritten = response.choices[0]?.message?.content?.trim() || text;
       return { success: true, result: rewritten, style };
     } catch (err) {
-      console.warn('[OpenAI Rewrite Warning - fallback used]:', err.message);
+      console.warn(`[AI Provider (${config.provider}) Rewrite Warning - fallback used]:`, err.message);
     }
   }
 
@@ -407,10 +487,13 @@ export const translateMessage = async ({ text, targetLanguage = 'Spanish' }) => 
     return { success: false, message: 'Text is required for translation' };
   }
 
-  if (openaiClient) {
+  const config = getAiConfig();
+
+  if (config.isConfigured) {
     try {
-      const response = await openaiClient.chat.completions.create({
-        model: defaultModel,
+      const client = getOpenAIClient();
+      const response = await client.chat.completions.create({
+        model: config.model,
         messages: [
           {
             role: 'system',
@@ -425,7 +508,7 @@ export const translateMessage = async ({ text, targetLanguage = 'Spanish' }) => 
       const translated = response.choices[0]?.message?.content?.trim() || text;
       return { success: true, translatedText: translated, targetLanguage };
     } catch (err) {
-      console.warn('[OpenAI Translation Warning - fallback used]:', err.message);
+      console.warn(`[AI Provider (${config.provider}) Translation Warning - fallback used]:`, err.message);
     }
   }
 
@@ -455,10 +538,13 @@ export const summarizeMessages = async ({ messages = [] }) => {
     .map((m) => `${m.sender?.name || 'User'}: ${m.text || ''}`)
     .join('\n');
 
-  if (openaiClient) {
+  const config = getAiConfig();
+
+  if (config.isConfigured) {
     try {
-      const response = await openaiClient.chat.completions.create({
-        model: defaultModel,
+      const client = getOpenAIClient();
+      const response = await client.chat.completions.create({
+        model: config.model,
         messages: [
           {
             role: 'system',
@@ -476,7 +562,7 @@ export const summarizeMessages = async ({ messages = [] }) => {
       const summary = response.choices[0]?.message?.content?.trim() || '';
       return { success: true, summary };
     } catch (err) {
-      console.warn('[OpenAI Summarize Warning - fallback used]:', err.message);
+      console.warn(`[AI Provider (${config.provider}) Summarize Warning - fallback used]:`, err.message);
     }
   }
 
@@ -495,10 +581,13 @@ export const generateSmartReplies = async ({ messages = [] }) => {
     .map((m) => `${m.sender?.name || 'User'}: ${m.text || ''}`)
     .join('\n');
 
-  if (openaiClient && recentMessages.trim()) {
+  const config = getAiConfig();
+
+  if (config.isConfigured && recentMessages.trim()) {
     try {
-      const response = await openaiClient.chat.completions.create({
-        model: defaultModel,
+      const client = getOpenAIClient();
+      const response = await client.chat.completions.create({
+        model: config.model,
         messages: [
           {
             role: 'system',
@@ -516,7 +605,7 @@ export const generateSmartReplies = async ({ messages = [] }) => {
         return { success: true, suggestions: parsed.slice(0, 3) };
       }
     } catch (err) {
-      console.warn('[OpenAI Smart Replies Warning - fallback used]:', err.message);
+      console.warn(`[AI Provider (${config.provider}) Smart Replies Warning - fallback used]:`, err.message);
     }
   }
 
@@ -539,5 +628,7 @@ export default {
   translateMessage,
   summarizeMessages,
   generateSmartReplies,
+  getAiConfig,
+  getOpenAIClient,
   SYSTEM_PROMPT,
 };

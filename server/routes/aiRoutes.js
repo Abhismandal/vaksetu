@@ -6,10 +6,14 @@ import {
   translateMessageController,
   summarizeConversationController,
   getSmartRepliesController,
+  getAiStatus,
 } from '../controllers/aiController.js';
 import { protect } from '../middleware/auth.js';
 
 const router = Router();
+
+// Public AI status & diagnostic endpoint
+router.get('/status', getAiStatus);
 
 router.use(protect);
 

@@ -814,12 +814,13 @@ export const ChatProvider = ({ children }) => {
         },
         onError: (err) => {
           console.error('[AI Stream Error]:', err);
+          const errMsg = err?.message || 'Sorry, I encountered an issue generating a response. Please try again.';
           setAiMessages((prev) =>
             prev.map((m) =>
               m._id === aiMsgId
                 ? {
                     ...m,
-                    text: accumulatedAiText || 'Sorry, I encountered an issue generating a response. Please try again.',
+                    text: accumulatedAiText ? `${accumulatedAiText}\n\n⚠️ ${errMsg}` : `⚠️ ${errMsg}`,
                     isStreaming: false,
                   }
                 : m
